@@ -55,7 +55,7 @@
           <div class="url" id="qrUrl"></div>
         </div>
         <div class="tools">
-          <a class="btn" id="csv">⬇ Descargar CSV</a>
+          <a class="btn" id="excel">⬇ Descargar Excel</a>
           <button class="btn ghost" id="reset">Borrar resultados</button>
         </div>
       </aside>
@@ -89,7 +89,7 @@
       if (data.title) $('#title').textContent = data.title;
       reactions = Array.isArray(data.reactions) ? data.reactions : [];
 
-      $('#csv').href = '/api/csv?key=' + encodeURIComponent(KEY);
+      $('#excel').href = '/api/excel?key=' + encodeURIComponent(KEY);
       fetch('/api/qr?key=' + encodeURIComponent(KEY))
         .then(r => r.ok ? r.json() : null)
         .then(qr => {
@@ -246,7 +246,7 @@
       socket.on('reset', () => { reactions = []; renderMeter(); renderFeed(); renderCloud(); });
 
       $('#reset').addEventListener('click', async () => {
-        if (!confirm('¿Borrar todas las reacciones? Se guarda una copia de respaldo en el servidor, pero desaparecerán de la pantalla y del CSV.')) return;
+        if (!confirm('¿Borrar todas las reacciones? Se guarda una copia de respaldo en el servidor, pero desaparecerán de la pantalla y del Excel.')) return;
         await fetch('/api/reset?key=' + encodeURIComponent(KEY), { method: 'POST' });
       });
 

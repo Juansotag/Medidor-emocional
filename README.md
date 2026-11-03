@@ -6,8 +6,8 @@ App web para eventos: mientras el expositor habla, el auditorio ubica su emoció
 
 | Vista | URL | Para qué |
 |---|---|---|
-| Participante | `https://TU-APP.up.railway.app/` | Nombre, casilla del medidor, una palabra, Enviar |
-| Administrador / pantalla | `https://TU-APP.up.railway.app/admin?key=TU_CLAVE` | Medidor y nube en vivo, QR, descarga del CSV, borrar resultados |
+| Participante | `https://medidor-emocional.up.railway.app/` | Nombre, casilla del medidor, una palabra, Enviar |
+| Administrador / pantalla | `https://medidor-emocional.up.railway.app/admin?key=TU_CLAVE` | Medidor y nube en vivo, QR, descarga de Excel, borrar resultados |
 
 El QR del panel apunta a la vista de participante. El botón "Pantalla" pone el panel en pantalla completa y oculta los botones de administración para proyectarlo.
 
@@ -18,7 +18,7 @@ El QR del panel apunta a la vista de participante. El botón "Pantalla" pone el 
 | `ADMIN_KEY` | Sí | Clave del enlace de administrador. Usa algo largo y difícil de adivinar. |
 | `DATA_DIR` | Recomendada | Carpeta donde se guardan las reacciones. En Railway, la ruta del volumen (p. ej. `/data`). |
 | `EVENT_TITLE` | No | Título que ven todos. Por defecto: "¿Cómo te hizo sentir?" |
-| `PUBLIC_URL` | No | URL pública para el QR si la detección automática falla (p. ej. con dominio propio). |
+| `PUBLIC_URL` | No | URL pública para el QR (por defecto `https://medidor-emocional.up.railway.app`). |
 
 ## Despliegue en Railway
 
@@ -39,9 +39,9 @@ ADMIN_KEY=prueba npm start
 
 Para probar desde el celular en la misma red, abre el admin usando la IP del computador (`http://192.168.x.x:3000/admin?key=prueba`) para que el QR apunte a esa IP.
 
-## CSV
+## Archivo Excel (.xlsx)
 
-Una fila por reacción, UTF-8 con BOM (abre bien en Excel), hora de Bogotá:
+Una fila por reacción en formato Excel (`.xlsx`), hora de Bogotá:
 
 `id, fecha, hora, nombre, cuadrante, descripcion_cuadrante, agrado_x, energia_y, palabra`
 
