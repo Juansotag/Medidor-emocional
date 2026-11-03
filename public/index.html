@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Medidor emocional</title>
+  <meta name="theme-color" content="#f7f4e6">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 20 20%22%3E%3Crect width=%229%22 height=%229%22 rx=%222%22 fill=%22%23f19d92%22/%3E%3Crect x=%2211%22 width=%229%22 height=%229%22 rx=%222%22 fill=%22%23f8db78%22/%3E%3Crect y=%2211%22 width=%229%22 height=%229%22 rx=%222%22 fill=%22%23b8d2ef%22/%3E%3Crect x=%2211%22 y=%2211%22 width=%229%22 height=%229%22 rx=%222%22 fill=%22%23c6e5a4%22/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="participant">
+  <main>
+    <header>
+      <h1 id="title">¿Cómo te hizo sentir?</h1>
+      <p>Toca la casilla que mejor describe lo que sientes ahora</p>
+    </header>
+
+    <form id="form" autocomplete="off" novalidate>
+      <div class="field">
+        <label for="nombre">Tu nombre</label>
+        <input id="nombre" name="nombre" maxlength="60" placeholder="Escribe tu nombre" required>
+      </div>
+
+      <div class="field">
+        <label>Tu emoción</label>
+        <div id="meter"></div>
+        <div class="picked-text" id="pickedText"></div>
+      </div>
+
+      <div class="field">
+        <label for="palabra">Una palabra</label>
+        <input id="palabra" name="palabra" maxlength="30" placeholder="p. ej. inspiración" required
+               autocapitalize="off" spellcheck="false" enterkeyhint="send">
+        <div class="hint">Una sola palabra sobre lo que el expositor te hizo sentir</div>
+      </div>
+
+      <button class="btn block" id="send" type="submit">Enviar</button>
+    </form>
+  </main>
+  <div class="toast" id="toast"></div>
+
+  <script src="/meter.js"></script>
+  <script>
+    const $ = s => document.querySelector(s);
+    let pick = null;
+
+    fetch('/api/config').then(r => r.json()).then(c => { if (c.title) $('#title').textContent = c.title; }).catch(() => {});
+
+    let cid = '';
+    try {
+      $('#nombre').value = localStorage.getItem('medidor_nombre') || '';
+      cid = localStorage.getItem('medidor_cid') || '';
+      if (!cid) {
+        cid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem('medidor_cid', cid);
+      }
+    } catch {}
+
+    const meter = buildMeter($('#meter'), {
+      interactive: true,
+      onPick: p => {
+        pick = p;
+        $('#pickedText').innerHTML = `<span style="color:${QUAD_INK[p.q]}">●</span> ${QUAD_NAMES[p.q]}`;
+      },
+    });
+
+    // Una sola palabra: quitamos espacios mientras escribe
+    $('#palabra').addEventListener('input', e => {
+      const v = e.target.value.replace(/\s+/g, '');
+      if (v !== e.target.value) e.target.value = v;
+    });
+
+    function toast(msg, error = false) {
+      const t = $('#toast');
+      t.textContent = msg;
+      t.classList.toggle('error', error);
+      t.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => t.classList.remove('show'), 2800);
+    }
+
+    $('#form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const nombre = $('#nombre').value.trim();
+      const palabra = $('#palabra').value.trim();
+      if (!nombre) return toast('Escribe tu nombre', true);
+      if (!pick) return toast('Toca una casilla del medidor', true);
+      if (!palabra) return toast('Escribe una palabra', true);
+
+      const btn = $('#send');
+      btn.disabled = true;
+      let sentOk = false;
+      try {
+        const res = await fetch('/api/reacciones', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nombre, palabra, x: pick.x, y: pick.y, cid }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'No se pudo enviar');
+        sentOk = true;
+        try { localStorage.setItem('medidor_nombre', nombre); } catch {}
+        toast('¡Gracias! Puedes enviar otra cuando cambie lo que sientes');
+        $('#palabra').value = '';
+        meter.clear();
+        pick = null;
+        $('#pickedText').textContent = '';
+      } catch (err) {
+        toast(err.message, true);
+      } finally {
+        setTimeout(() => (btn.disabled = false), sentOk ? 1800 : 300);
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Medidor emocional · Pantalla</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 20 20%22%3E%3Crect width=%229%22 height=%229%22 rx=%222%22 fill=%22%23f19d92%22/%3E%3Crect x=%2211%22 width=%229%22 height=%229%22 rx=%222%22 fill=%22%23f8db78%22/%3E%3Crect y=%2211%22 width=%229%22 height=%229%22 rx=%222%22 fill=%22%23b8d2ef%22/%3E%3Crect x=%2211%22 y=%2211%22 width=%229%22 height=%229%22 rx=%222%22 fill=%22%23c6e5a4%22/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="admin">
+  <div id="lock" class="lock" hidden>
+    <h1>Acceso de administrador</h1>
+    <p>Ingresa la clave de administrador o abre <b>/admin?key=TU_CLAVE</b>.</p>
+    <form id="lockForm" class="field" style="display:flex;gap:8px;margin-top:16px">
+      <input id="keyInput" type="password" placeholder="Clave de administrador" required>
+      <button class="btn" type="submit">Entrar</button>
+    </form>
+  </div>
+
+  <div id="app" hidden style="display:contents">
+    <div class="topbar">
+      <h1 id="title">¿Cómo te hizo sentir?</h1>
+      <div class="meta">
+        <span><span class="live-dot" id="live"></span><span id="liveText">conectando</span></span>
+        <span class="counter"><span id="count">0</span> reacciones</span>
+        <button class="btn small ghost" id="fs" title="Pantalla completa">⛶ Pantalla</button>
+      </div>
+    </div>
+
+    <div class="stage">
+      <section class="panel">
+        <h2>Medidor del auditorio</h2>
+        <div id="meter"></div>
+        <div class="totals">
+          <div class="total rojo"><span>alta · no agradable</span><b id="t-rojo">0</b></div>
+          <div class="total amarillo"><span>alta · agradable</span><b id="t-amarillo">0</b></div>
+          <div class="total azul"><span>baja · no agradable</span><b id="t-azul">0</b></div>
+          <div class="total verde"><span>baja · agradable</span><b id="t-verde">0</b></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Nube de palabras</h2>
+        <div class="cloud-wrap" id="cloudWrap">
+          <canvas id="cloud"></canvas>
+          <div class="empty" id="empty">Aquí aparecerán las palabras del auditorio</div>
+        </div>
+        <ul class="feed" id="feed"></ul>
+      </section>
+
+      <aside class="side">
+        <div class="qr-card">
+          <h2>Escanea y participa</h2>
+          <div class="qr" id="qr"></div>
+          <div class="url" id="qrUrl"></div>
+        </div>
+        <div class="tools">
+          <a class="btn" id="csv">⬇ Descargar CSV</a>
+          <button class="btn ghost" id="reset">Borrar resultados</button>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/vendor/wordcloud2.js"></script>
+  <script src="/meter.js"></script>
+  <script>
+    const $ = s => document.querySelector(s);
+    const KEY = new URLSearchParams(location.search).get('key') || '';
+    const COLORS = QUAD_INK;
+    let reactions = [];
+
+    $('#lockForm')?.addEventListener('submit', e => {
+      e.preventDefault();
+      const k = $('#keyInput').value.trim();
+      if (k) location.search = '?key=' + encodeURIComponent(k);
+    });
+
+    async function start() {
+      const res = await fetch('/api/estado?key=' + encodeURIComponent(KEY));
+      if (!res.ok) {
+        $('#lock').hidden = false;
+        $('#keyInput')?.focus();
+        return;
+      }
+      const data = await res.json();
+      $('#app').hidden = false;
+      if (data.title) $('#title').textContent = data.title;
+      reactions = Array.isArray(data.reactions) ? data.reactions : [];
+
+      $('#csv').href = '/api/csv?key=' + encodeURIComponent(KEY);
+      fetch('/api/qr?key=' + encodeURIComponent(KEY))
+        .then(r => r.ok ? r.json() : null)
+        .then(qr => {
+          if (!qr) return;
+          $('#qr').innerHTML = qr.svg;
+          $('#qrUrl').textContent = qr.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+        })
+        .catch(() => {});
+
+      const meter = buildMeter($('#meter'));
+      const counts = new Map();
+
+      function renderMeter() {
+        counts.clear();
+        const totals = { rojo: 0, amarillo: 0, azul: 0, verde: 0 };
+        for (const r of reactions) {
+          const k = `${r.x},${r.y}`;
+          counts.set(k, (counts.get(k) || 0) + 1);
+          if (r.cuadrante in totals) totals[r.cuadrante]++;
+        }
+        for (const [k, el] of meter.cells) {
+          const n = counts.get(k) || 0;
+          el.classList.toggle('filled', n > 0);
+          el.innerHTML = n ? `<span class="n">${n}</span>` : '';
+        }
+        for (const q in totals) $('#t-' + q).textContent = totals[q];
+        $('#count').textContent = reactions.length;
+      }
+
+      function renderFeed() {
+        const last = reactions.slice(-6).reverse();
+        $('#feed').innerHTML = last.map(r =>
+          `<li><span class="chip" style="background:var(--${r.cuadrante})"></span>
+           <b>${esc(r.palabra)}</b> <span class="who">· ${esc(r.nombre)}</span></li>`).join('');
+      }
+
+      // Nube: tamaño por frecuencia, color por el cuadrante más frecuente de esa palabra
+      let cloudTimer;
+      let lastCloudDraw = 0;
+      let activeBuffer = null;
+      function renderCloud() {
+        clearTimeout(cloudTimer);
+        if (!reactions.length) {
+          drawCloud();
+          return;
+        }
+        $('#empty').hidden = true;
+        const elapsed = Date.now() - lastCloudDraw;
+        if (elapsed >= 150) {
+          drawCloud();
+        } else {
+          cloudTimer = setTimeout(drawCloud, 150 - elapsed);
+        }
+      }
+      function drawCloud() {
+        lastCloudDraw = Date.now();
+        const words = new Map();
+        for (const r of reactions) {
+          if (!r.palabra) continue;
+          const w = words.get(r.palabra) || { n: 0, q: {} };
+          w.n++; w.q[r.cuadrante] = (w.q[r.cuadrante] || 0) + 1;
+          words.set(r.palabra, w);
+        }
+        $('#empty').hidden = words.size > 0;
+        const canvas = $('#cloud');
+        const box = $('#cloudWrap').getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.round(box.width * dpr);
+        const h = Math.round(box.height * dpr);
+        if (!w || !h) return;
+
+        WordCloud.stop?.();
+        if (!words.size) {
+          activeBuffer = null;
+          canvas.width = w;
+          canvas.height = h;
+          canvas.getContext('2d').clearRect(0, 0, w, h);
+          return;
+        }
+
+        const list = [...words.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 120);
+        const max = list[0][1].n;
+        const countScale = Math.min(1, 5 / Math.sqrt(Math.max(5, list.length)));
+        const base = (w / 9) * countScale;
+        const minSize = Math.max(14 * dpr, w / 42);
+        const colorOf = new Map();
+        list.forEach(([word, d]) => {
+          const topQuad = Object.entries(d.q).sort((a, b) => b[1] - a[1])[0]?.[0];
+          colorOf.set(word, COLORS[topQuad] || '#2b2b2b');
+        });
+
+        const buffer = document.createElement('canvas');
+        buffer.width = w;
+        buffer.height = h;
+        activeBuffer = buffer;
+
+        buffer.addEventListener('wordcloudstop', () => {
+          if (activeBuffer !== buffer) return;
+          if (canvas.width !== w) canvas.width = w;
+          if (canvas.height !== h) canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, w, h);
+          ctx.drawImage(buffer, 0, 0);
+        });
+
+        WordCloud(buffer, {
+          list: list.map(([word, d]) => [
+            word,
+            Math.round(Math.max(minSize, base * Math.sqrt(d.n / max))),
+          ]),
+          weightFactor: size => size,
+          minSize: Math.round(10 * dpr),
+          fontFamily: 'Caveat, cursive',
+          fontWeight: 700,
+          color: word => colorOf.get(word) || '#2b2b2b',
+          backgroundColor: 'transparent',
+          rotateRatio: 0.15,
+          rotationSteps: 2,
+          gridSize: Math.round(6 * dpr),
+          shrinkToFit: true,
+          drawOutOfBound: false,
+        });
+      }
+
+      renderMeter(); renderFeed(); renderCloud();
+      document.fonts.ready.then(drawCloud);
+      addEventListener('resize', renderCloud);
+
+      const socket = io({ auth: { key: KEY } });
+      socket.on('connect', () => { $('#live').classList.add('on'); $('#liveText').textContent = 'en vivo'; });
+      socket.on('disconnect', () => { $('#live').classList.remove('on'); $('#liveText').textContent = 'reconectando'; });
+      socket.on('estado', d => {
+        if (!d || !Array.isArray(d.reactions)) return;
+        reactions = d.reactions;
+        if (d.title) $('#title').textContent = d.title;
+        renderMeter(); renderFeed(); renderCloud();
+      });
+      socket.io.on('reconnect', async () => {
+        try {
+          const d = await fetch('/api/estado?key=' + encodeURIComponent(KEY)).then(r => r.json());
+          if (d && Array.isArray(d.reactions)) {
+            reactions = d.reactions;
+            renderMeter(); renderFeed(); renderCloud();
+          }
+        } catch {}
+      });
+      socket.on('reaccion', r => {
+        if (reactions.some(x => x.id === r.id)) return;
+        reactions.push(r);
+        renderMeter(); renderFeed(); renderCloud();
+        const el = meter.cells.get(`${r.x},${r.y}`);
+        if (el) { el.classList.remove('pulse'); void el.offsetWidth; el.classList.add('pulse'); }
+      });
+      socket.on('reset', () => { reactions = []; renderMeter(); renderFeed(); renderCloud(); });
+
+      $('#reset').addEventListener('click', async () => {
+        if (!confirm('¿Borrar todas las reacciones? Se guarda una copia de respaldo en el servidor, pero desaparecerán de la pantalla y del CSV.')) return;
+        await fetch('/api/reset?key=' + encodeURIComponent(KEY), { method: 'POST' });
+      });
+
+      $('#fs').addEventListener('click', () => {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else document.documentElement.requestFullscreen?.();
+      });
+      document.addEventListener('fullscreenchange', () => {
+        document.body.classList.toggle('projector', !!document.fullscreenElement);
+        renderCloud();
+      });
+    }
+
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    start();
+  </script>
+</body>
+</html>
